@@ -1,0 +1,6 @@
+library(tidyverse)
+library(ggpubr)
+library(extrafontdb)
+library(extrafont)
+library(Cairo)
+library(broom)
