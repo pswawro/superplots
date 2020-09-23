@@ -1,4 +1,5 @@
 library(shiny)
+library(shinyWidgets)
 library(tidyverse)
 library(ggbeeswarm)
 library(ggpubr)
@@ -8,6 +9,7 @@ library(Cairo)
 library(broom)
 
 loadfonts()
+shinyWidgetsGallery()
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -18,9 +20,16 @@ ui <- fluidPage(
         # Load data
         sidebarPanel(
             fileInput("data_raw", "Load your data set (.csv)", accept = ".csv"),
-            textInput("y_label", "Label for y axis"),
-            actionButton("update", "Plot")),
-        
+            prettyRadioButtons("geom", "Plot type", choices = c("Beeswarm", "Violin", "Boxplot"), selected = "Beeswarm"),
+            materialSwitch("expand_options", "Options", status = "primary", right = TRUE),
+            
+            conditionalPanel(condition = "input.expand_options == 1",
+                             textInput("y_label", "Label for y axis"),
+                             sliderInput("plot_width", "Plot width (in)", min = 4, max = 12, value = 6, step = 0.25),
+                             sliderInput("plot_height", "Plot height (in)", min = 4, max = 12, value = 6, step = 0.25),
+                             conditionalPanel(condition = "input.geom == 'Beeswarm'",
+                                sliderInput("cex", "Point spread", min = 1, max = 3, value = 2, step = 0.25))),
+        ),
         mainPanel(
             tabsetPanel(
                 tabPanel("Plot", plotOutput("plot")),
@@ -57,7 +66,7 @@ server <- function(input, output) {
     })
     
     # Define ggplot theme
-    theme <- theme(legend.position = "none",
+    theme_plot <- reactive({theme(legend.position = "none",
                    text = element_text(family = "Arial", color = "black"),
                    axis.title.x = element_blank(),
                    axis.title.y = element_text(size = 9),
@@ -66,6 +75,7 @@ server <- function(input, output) {
                    plot.tag = element_text(size = 8),
                    plot.tag.position = c(0.3, 0.06),
                    axis.ticks.length.y = unit(-1, "mm"))
+    })
     
     # Output raw data
     output$data_raw <- renderDataTable({
@@ -80,21 +90,28 @@ server <- function(input, output) {
     
         
     # Create superplot
-    gg <- eventReactive(input$update, {
-        ggplot(data = data()) +
-        geom_beeswarm(aes(x = condition, y = val)) +
-        geom_point(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), size = 5) +
-   #    stat_pvalue_manual(data = data_signif, step.increase = 0.1) +
-   #    scale_shape_manual(values = c(22, 23, 24)) +
-        scale_x_discrete(name = NULL) +
-        scale_y_continuous(name = input$y_label) +
-        theme_classic() +
-        theme
-        })
-        
-    output$plot <- renderPlot({
-        gg()
+    gg <- reactive({
+        ggplot(data = data(), aes(x = condition, y = val)) +
+            #    stat_pvalue_manual(data = data_signif, step.increase = 0.1) +
+            #    scale_shape_manual(values = c(22, 23, 24)) +
+            scale_x_discrete(name = NULL) +
+            scale_y_continuous(name = input$y_label) +
+            theme_classic() +
+            theme_plot()
     })
+    output$plot <- renderPlot({
+        if(input$geom == "Beeswarm") {
+       gg() + geom_beeswarm(cex = input$cex, alpha = 0.6) +
+            geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), size = 5)
+        } else if(input$geom == "Violin") {
+            gg() + geom_violin(fill = "grey82") +
+                geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), position = "jitter", size = 5)
+        } else if(input$geom == "Boxplot") {
+            gg() + geom_boxplot() +
+                geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), position = "jitter", size = 5)
+        }
+    }, width = function() {input$plot_width * 72}, height = function() {input$plot_height * 72}, res = 72)
 }
+
 
 shinyApp(ui = ui, server = server)
