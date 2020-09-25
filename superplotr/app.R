@@ -1,5 +1,6 @@
 library(shiny)
 library(shinyWidgets)
+library(colourpicker)
 library(tidyverse)
 library(ggbeeswarm)
 library(ggpubr)
@@ -20,15 +21,23 @@ ui <- fluidPage(
         # Load data
         sidebarPanel(
             fileInput("data_raw", "Load your data set (.csv)", accept = ".csv"),
-            prettyRadioButtons("geom", "Plot type", choices = c("Beeswarm", "Violin", "Boxplot"), selected = "Beeswarm"),
-            materialSwitch("expand_options", "Options", status = "primary", right = TRUE),
+            prettyRadioButtons("geom", "Plot type", choices = c("Beeswarm", "Violin", "Boxplot", "Barplot"), selected = "Beeswarm"),
+            radioGroupButtons("options", choices = c("Data", "Display", "Export"), status = "primary", justified = TRUE),
             
-            conditionalPanel(condition = "input.expand_options == 1",
+            
+            conditionalPanel(condition = "input.options == 'Display'",
                              textInput("y_label", "Label for y axis"),
-                             sliderInput("plot_width", "Plot width (in)", min = 4, max = 12, value = 6, step = 0.25),
-                             sliderInput("plot_height", "Plot height (in)", min = 4, max = 12, value = 6, step = 0.25),
+                             fluidRow(
+                                 column(6, sliderInput("plot_width", "Plot width (in)", min = 1, max = 12, value = 4.5, step = 0.25)),
+                                 column(6, sliderInput("plot_height", "Plot height (in)", min = 1, max = 12, value = 6, step = 0.25))),
+                             fluidRow(
+                                 column(6, sliderInput("data_size", "Resize data points", min = 1, max = 4, value = 2.5, step = 0.25)),
+                                 column(6, sliderInput("mean_size", "Resize mean points", min = 1, max = 6, value = 5, step = 0.25))),
+                             sliderInput("y_scale", "Scale y axis", min = 0, max = 1, value = c(0, 1)),
                              conditionalPanel(condition = "input.geom == 'Beeswarm'",
                                 sliderInput("cex", "Point spread", min = 1, max = 3, value = 2, step = 0.25))),
+            conditionalPanel(condition = "input.options == 'Export'",
+                            downloadButton("plot_to_pdf", "Save plot as pdf"))
         ),
         mainPanel(
             tabsetPanel(
@@ -40,7 +49,7 @@ ui <- fluidPage(
         )
     )
 
-server <- function(input, output) {
+server <- function(input, output, session) {
     
     # Read csv
     data_raw <- reactive({
@@ -95,22 +104,61 @@ server <- function(input, output) {
             #    stat_pvalue_manual(data = data_signif, step.increase = 0.1) +
             #    scale_shape_manual(values = c(22, 23, 24)) +
             scale_x_discrete(name = NULL) +
-            scale_y_continuous(name = input$y_label) +
+            scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
             theme_classic() +
             theme_plot()
     })
-    output$plot <- renderPlot({
+        
+    superplot <- reactive({
         if(input$geom == "Beeswarm") {
-       gg() + geom_beeswarm(cex = input$cex, alpha = 0.6) +
-            geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), size = 5)
-        } else if(input$geom == "Violin") {
-            gg() + geom_violin(fill = "grey82") +
-                geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), position = "jitter", size = 5)
-        } else if(input$geom == "Boxplot") {
-            gg() + geom_boxplot() +
-                geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), position = "jitter", size = 5)
-        }
+        gg() + geom_beeswarm(cex = input$cex, alpha = 0.5, size = input$data_size) +
+            geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, fill = rep, shape = rep), size = input$mean_size) +
+                scale_shape_manual(values = c(21, 22, 23, 24, 25))
+    } else if(input$geom == "Violin") {
+        gg() + geom_violin(fill = "grey82") +
+            geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, fill = rep, shape = rep), size = input$mean_size) +
+            scale_shape_manual(values = c(21, 22, 23, 24, 25))
+    } else if(input$geom == "Boxplot") {
+        gg() + geom_boxplot() +
+            geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, fill = rep, shape = rep), size = input$mean_size) +
+            scale_shape_manual(values = c(21, 22, 23, 24, 25))
+    } else if(input$geom == "Barplot") {
+        data() %>%
+            group_by(condition) %>%
+            summarize(mean = mean(val),
+                      median = median(val),
+                      sem = sd(val) / sqrt(length(val)),
+                      min = min(val),
+                      max = max(val)) %>%
+            ggplot(aes(x = condition, y = mean)) +
+                geom_errorbar(aes(ymin = mean - sem, ymax = mean + sem), width = 0.25) +
+                geom_col(fill = "grey56") +
+                geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, fill = rep, shape = rep), size = input$mean_size) +
+                scale_shape_manual(values = c(21, 22, 23, 24, 25)) +
+                scale_x_discrete(name = NULL) +
+                scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
+                theme_classic() +
+                theme_plot()
+    }
+    })
+    
+    # Superplot output
+    output$plot <- renderPlot({
+       superplot()
     }, width = function() {input$plot_width * 72}, height = function() {input$plot_height * 72}, res = 72)
+    
+    # Create rescaling sliders
+    observe(updateSliderInput(session, "y_scale", min = 0, max = round(max(data()$val) * 1.1, digits = 2),
+                              value = c(0, round(max(data()$val) * 1.1, digits = 2))
+                              ))
+    
+    # Export plot
+    output$plot_to_pdf <- downloadHandler(
+        filename = paste(input$raw_data$name, ".pdf", sep = ""),
+        content = function(file) {
+            ggsave(file, superplot(), width = input$plot_width, height = input$plot_height, device = cairo_pdf())
+        })
+        
 }
 
 
