@@ -1,5 +1,6 @@
 library(shiny)
 library(shinyWidgets)
+library(rclipboard)
 library(tidyverse)
 library(ggbeeswarm)
 library(ggpubr)
@@ -22,11 +23,13 @@ ui <- fluidPage(
             fileInput("data_raw", "Load your data set (.csv)", accept = ".csv"),
             prettyRadioButtons("geom", "Plot type", choices = c("Beeswarm", "Violin", "Boxplot"), selected = "Beeswarm"),
             materialSwitch("expand_options", "Options", status = "primary", right = TRUE),
+            downloadButton("plot_to_pdf", "Save plot as pdf"),
             
             conditionalPanel(condition = "input.expand_options == 1",
                              textInput("y_label", "Label for y axis"),
-                             sliderInput("plot_width", "Plot width (in)", min = 4, max = 12, value = 6, step = 0.25),
+                             sliderInput("plot_width", "Plot width (in)", min = 2, max = 12, value = 6, step = 0.25),
                              sliderInput("plot_height", "Plot height (in)", min = 4, max = 12, value = 6, step = 0.25),
+                             sliderInput("y_scale", "Scale y axis", min = 0, max = 1, value = 0),
                              conditionalPanel(condition = "input.geom == 'Beeswarm'",
                                 sliderInput("cex", "Point spread", min = 1, max = 3, value = 2, step = 0.25))),
         ),
@@ -40,7 +43,7 @@ ui <- fluidPage(
         )
     )
 
-server <- function(input, output) {
+server <- function(input, output, session) {
     
     # Read csv
     data_raw <- reactive({
@@ -95,22 +98,40 @@ server <- function(input, output) {
             #    stat_pvalue_manual(data = data_signif, step.increase = 0.1) +
             #    scale_shape_manual(values = c(22, 23, 24)) +
             scale_x_discrete(name = NULL) +
-            scale_y_continuous(name = input$y_label) +
+            scale_y_continuous(name = input$y_label, limits = c(0, input$y_scale)) +
             theme_classic() +
             theme_plot()
     })
-    output$plot <- renderPlot({
+        
+    superplot <- reactive({
         if(input$geom == "Beeswarm") {
-       gg() + geom_beeswarm(cex = input$cex, alpha = 0.6) +
+        gg() + geom_beeswarm(cex = input$cex, alpha = 0.6) +
             geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), size = 5)
-        } else if(input$geom == "Violin") {
-            gg() + geom_violin(fill = "grey82") +
-                geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), position = "jitter", size = 5)
-        } else if(input$geom == "Boxplot") {
-            gg() + geom_boxplot() +
-                geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), position = "jitter", size = 5)
-        }
+    } else if(input$geom == "Violin") {
+        gg() + geom_violin(fill = "grey82") +
+            geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), size = 5)
+    } else if(input$geom == "Boxplot") {
+        gg() + geom_boxplot() +
+            geom_beeswarm(data = data_summary(), aes(x = condition, y = mean, color = rep, shape = rep), size = 5)
+    }
+    })
+    
+    # Superplot output
+    output$plot <- renderPlot({
+       superplot()
     }, width = function() {input$plot_width * 72}, height = function() {input$plot_height * 72}, res = 72)
+    
+    # Create rescaling sliders
+    observe(updateSliderInput(session, "y_scale", min = round(min(data()$val), digits = 2),
+                              max = (round(max(data()$val), digits = 2) * 1.1), value = (round(max(data()$val), digits = 2)) * 1.1))
+    
+    # Export plot
+    output$plot_to_pdf <- downloadHandler(
+        filename = paste(input$raw_data$name, ".pdf", sep = ""),
+        content = function(file) {
+            ggsave(file, superplot(), width = input$plot_width, height = input$plot_height, device = cairo_pdf())
+        })
+        
 }
 
 
