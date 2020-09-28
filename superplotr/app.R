@@ -33,6 +33,8 @@ ui <- fluidPage(
                                 column(4, pickerInput("condition", "Condition", choices = c())),
                                 column(4, pickerInput("rep", "Replicate", choices = c())),
                                 column(4, pickerInput("y_value", "Value", choices = c()))),
+                             awesomeRadio("sum","Summary value to show", choices = c("Mean", "Median"), selected = "Mean",
+                                          inline = TRUE, checkbox = TRUE),
                              # y label options
                              fluidRow(
                                  column(8, textInput("y_label", "Label for y axis")),
@@ -146,19 +148,19 @@ server <- function(input, output, session) {
     superplot <- reactive({
         if(input$geom == "Beeswarm") {
             gg() + geom_beeswarm(cex = input$cex, alpha = 0.6, size = input$point_size_data) +
-                geom_beeswarm(data = data_summary(), aes(x = !!sym(input$condition), y = Mean,
+                geom_beeswarm(data = data_summary(), aes(x = !!sym(input$condition), y = !!sym(input$sum),
                                                          fill = factor(!!sym(input$rep)), shape = factor(!!sym(input$rep))),
                               size = input$point_size_sum) +
                 scale_shape_manual(values = c(21:25))
         } else if(input$geom == "Violin") {
             gg() + geom_violin(fill = "grey82") +
-                geom_beeswarm(data = data_summary(), aes(x = !!sym(input$condition), y = Mean,
+                geom_beeswarm(data = data_summary(), aes(x = !!sym(input$condition), y = !!sym(input$sum),
                                                          fill = factor(!!sym(input$rep)), shape = factor(!!sym(input$rep))),
                               size = input$point_size_sum) +
                 scale_shape_manual(values = c(21:25))
         } else if(input$geom == "Boxplot") {
             gg() + geom_boxplot() +
-                geom_beeswarm(data = data_summary(), aes(x = !!sym(input$condition), y = Mean,
+                geom_beeswarm(data = data_summary(), aes(x = !!sym(input$condition), y = !!sym(input$sum),
                                                          fill = factor(!!sym(input$rep)), shape = factor(!!sym(input$rep))),
                               size = input$point_size_sum) +
                 scale_shape_manual(values = c(21:25))
@@ -170,10 +172,10 @@ server <- function(input, output, session) {
                           SEM = sd(!!sym(input$y_value)) / sqrt(length(!!sym(input$y_value))),
                           Min = min(!!sym(input$y_value)),
                           Max = max(!!sym(input$y_value))) %>%
-                ggplot(aes(x = !!sym(input$condition), y = Mean)) +
-                geom_errorbar(aes(ymin = Mean - SEM, ymax = Mean + SEM), width = 0.25) +
+                ggplot(aes(x = !!sym(input$condition), y = !!sym(input$sum))) +
+                geom_errorbar(aes(ymin = !!sym(input$sum) - SEM, ymax = !!sym(input$sum) + SEM), width = 0.25) +
                 geom_col(fill = "grey56") +
-                geom_beeswarm(data = data_summary(), aes(x = !!sym(input$condition), y = Mean,
+                geom_beeswarm(data = data_summary(), aes(x = !!sym(input$condition), y = !!sym(input$sum),
                                                          fill = factor(!!sym(input$rep)), shape = factor(!!sym(input$rep))),
                               size = input$point_size_sum) +
                 scale_shape_manual(values = c(21:25)) +
