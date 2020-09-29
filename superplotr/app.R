@@ -11,7 +11,8 @@ library(broom)
 loadfonts()
 shinyWidgetsGallery()
 
-# Define UI for application that draws a histogram
+#### UI ####
+
 ui <- fluidPage(
     # Add title
     titlePanel("SuperplotR"),
@@ -20,6 +21,7 @@ ui <- fluidPage(
         # Load data
         sidebarPanel(
             fileInput("data_raw", "Load your data set (.csv)", accept = ".csv"),
+            actionButton("upload", "Upload"),
             # Choose plot type
             prettyRadioButtons("geom", "Plot type", choices = c("Beeswarm", "Violin", "Boxplot", "Barplot"), selected = "Beeswarm"),
             
@@ -83,12 +85,13 @@ ui <- fluidPage(
     )
 )
 
+#### Server ####
+
 server <- function(input, output, session) {
-    
     # Read csv
     data_raw <- reactive({
         req(input$data_raw)
-        read_csv(input$data_raw$datapath)
+            read_csv(input$data_raw$datapath)
     })
     
     # Choose values to plot by
@@ -113,7 +116,7 @@ server <- function(input, output, session) {
     
     
     # Final data
-    data <- reactive({
+    data <- eventReactive(input$upload, {
         req(input$condition, input$rep, input$y_value, input$ref)
         data_raw() %>%
             mutate(
