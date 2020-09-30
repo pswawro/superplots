@@ -21,7 +21,6 @@ ui <- fluidPage(
         # Load data
         sidebarPanel(
             fileInput("data_raw", "Load your data set (.csv)", accept = ".csv"),
-            actionButton("upload", "Upload"),
             # Choose plot type
             prettyRadioButtons("geom", "Plot type", choices = c("Beeswarm", "Violin", "Boxplot", "Barplot"), selected = "Beeswarm"),
             
@@ -32,9 +31,9 @@ ui <- fluidPage(
             conditionalPanel(condition = "input.options == 'Data'",
                              # Choose data
                              fluidRow(
-                                column(4, pickerInput("condition", "Condition", choices = c())),
-                                column(4, pickerInput("rep", "Replicate", choices = c())),
-                                column(4, pickerInput("y_value", "Value", choices = c()))),
+                                 column(4, pickerInput("condition", "Condition", choices = c())),
+                                 column(4, pickerInput("rep", "Replicate", choices = c())),
+                                 column(4, pickerInput("y_value", "Value", choices = c()))),
                              awesomeRadio("sum","Summary value to plot", choices = c("Mean", "Median"), selected = "Mean",
                                           inline = TRUE, checkbox = TRUE),
                              # Pick control
@@ -91,7 +90,7 @@ server <- function(input, output, session) {
     # Read csv
     data_raw <- reactive({
         req(input$data_raw)
-            read_csv(input$data_raw$datapath)
+        read_csv(input$data_raw$datapath)
     })
     
     # Choose values to plot by
@@ -103,35 +102,47 @@ server <- function(input, output, session) {
             names()
         
         updatePickerInput(session, "condition", choices = col_names, selected = col_names[1])
-     
+        
         updatePickerInput(session, "rep", choices = col_names, selected = col_names[2])
-   
+        
         updatePickerInput(session, "y_value", choices = col_names_num, selected = col_names_num[1])
     })
     
     # Update control input
-    observeEvent(input$condition, {
+    observe({
+        req(data_raw(), input$condition)
         updatePickerInput(session, "ref", choices = unique(data_raw()[,input$condition]))
     })
     
-    
     # Final data
-    data <- eventReactive(input$upload, {
-        req(input$condition, input$rep, input$y_value, input$ref)
+    data_2 <- reactive({
+        req(data_raw(), input$condition, input$rep, input$y_value)
+        
+        nlevels <- unique(data_raw()[[input$condition]])
+        
         data_raw() %>%
-            mutate(
-                   Condition = factor(!!sym(input$condition), ordered = FALSE),
-                   Condition = fct_relevel(Condition, input$ref),
-                   Rep = factor(!!sym(input$rep)),
-                   Value = !!sym(input$y_value)) %>%
+            mutate(Condition = !!sym(input$condition),
+                   Condition = factor(Condition, levels = nlevels, ordered = FALSE),
+                   Rep = !!sym(input$rep),
+                   Rep = factor(Rep),
+                   Value = as.numeric(!!sym(input$y_value))) %>%
             filter(!is.na(Value)) %>%
             select(Condition, Rep, Value)
+    })
+    
+    data_fin <- eventReactive(list(input$ref, input$rep, input$y_value), {
+        
+        ref_level <- input$ref
+        
+        data_2() %>%
+            mutate(Condition = fct_relevel(Condition, ref_level))
     })
     
     
     # Create data summary   
     data_summary <- reactive({
-        data() %>%
+        req(data_fin())
+        data_fin() %>%
             group_by(Condition, Rep) %>%
             summarize(Mean = mean(Value, na.rm = TRUE),
                       Median = median(Value, na.rm = TRUE),
@@ -142,10 +153,11 @@ server <- function(input, output, session) {
             select(Condition, Rep, Mean, Median, SEM, Min, Max)
     })
     
+    
     # Output raw data
     output$data <- renderDataTable({
-        req(data())
-        data()
+        req(data_fin())
+        data_fin()
     })
     
     
@@ -155,40 +167,42 @@ server <- function(input, output, session) {
         data_summary()
     })
     
-    # Calculate significance
-    ref_signif <- reactive({
-        req(input$ref)
-        gsub('-', '**subformin**', input$ref, fixed = TRUE)})
     
+    
+    # Calculate significance
     data_for_signif <- reactive({
+        req(input$ref)
+        
+        ref_signif <- gsub('-', '**subformin**', input$ref, fixed = TRUE)
+        
         data_summary() %>%
             mutate(Condition = gsub('-', '**subformin**', Condition, fixed = TRUE),
-                   Condition = fct_relevel(Condition, ref_signif()))
+                   Condition = fct_relevel(Condition, ref_signif))
     })
     
     data_signif <- reactive({
-        req(input$sum, input$condition, input$signif_position, input$ref)
+        req(data_fin(), data_for_signif(), input$sum, input$condition, input$signif_position, input$ref)
         if(input$test == "t.test") {
             validate(need(
-                length(unique(data()$Condition)) == 2,
+                length(unique(data_fin()$Condition)) == 2,
                 message = "To perform t.test, the number of conditions must be 2. For 3 conditions and more please choose Anova."))
             
-        t.test(as.formula(paste(input$sum, "~", input$condition)), data_for_signif(), paired = TRUE) %>%
-            tidy() %>%
-            transmute(group1 = unique(Condition)[2],
-                      group2 = unique(Condition)[1],
-                      p = signif(p.value, 3),
-                      y.position = input$signif_position)
-    } else {
-        TukeyHSD(aov(as.formula(paste(input$sum, "~", input$condition)), data = data_for_signif())) %>%
-            tidy() %>%
-            separate(contrast, into = c("group1", "group2"), sep = "-", extra = "merge") %>%
-            transmute(group1 = gsub('**subformin**', '-', group1, fixed = TRUE),
-                      group2 = gsub('**subformin**', '-', group2, fixed = TRUE),
-                      p = signif(adj.p.value, 3),
-                      y.position =  input$signif_position) %>%
-            filter(group2 == input$ref)
-    }
+            t.test(as.formula(paste(input$sum, "~", input$condition)), data_for_signif(), paired = TRUE) %>%
+                tidy() %>%
+                transmute(group1 = unique(Condition)[2],
+                          group2 = unique(Condition)[1],
+                          p = signif(p.value, 3),
+                          y.position = input$signif_position)
+        } else {
+            TukeyHSD(aov(as.formula(paste(input$sum, "~", input$condition)), data = data_for_signif())) %>%
+                tidy() %>%
+                separate(contrast, into = c("group1", "group2"), sep = "-", extra = "merge") %>%
+                transmute(group1 = gsub('**subformin**', '-', group1, fixed = TRUE),
+                          group2 = gsub('**subformin**', '-', group2, fixed = TRUE),
+                          p = signif(adj.p.value, 3),
+                          y.position =  input$signif_position) %>%
+                filter(group2 == input$ref)
+        }
     })
     
     output$signif <- renderDataTable({
@@ -199,23 +213,25 @@ server <- function(input, output, session) {
     
     
     # Define ggplot theme
-    theme_plot <- reactive({theme(legend.position = "none",
-                                  text = element_text(family = "Arial", color = "black"),
-                                  axis.title.x = element_text(size = input$x_label_size),
-                                  axis.title.y = element_text(size = input$y_label_size),
-                                  axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5),
-                                  axis.text.y = element_text(size = 8, margin = unit(c(0, 2, 0, 0), "mm")),
-                                  plot.tag = element_text(size = 8),
-                                  plot.tag.position = c(0.3, 0.06),
-                                  axis.ticks.length.y = unit(-1, "mm"))
+    theme_plot <- reactive({
+        req(input$x_label_size, input$y_label_size)
+        theme(legend.position = "none",
+              text = element_text(family = "Arial", color = "black"),
+              axis.title.x = element_text(size = input$x_label_size),
+              axis.title.y = element_text(size = input$y_label_size),
+              axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5),
+              axis.text.y = element_text(size = 8, margin = unit(c(0, 2, 0, 0), "mm")),
+              plot.tag = element_text(size = 8),
+              plot.tag.position = c(0.3, 0.06),
+              axis.ticks.length.y = unit(-1, "mm"))
     })
     
     # Create superplot
-    
     superplot <- reactive({
+        req(data_fin(), input$cex, input$point_size_data, input$sum, input$point_size_sum, input$y_scale)
         if(input$geom == "Beeswarm") {
-          
-                data() %>%
+            
+            data_fin() %>%
                 ggplot(aes(x = Condition, y = Value)) +
                 geom_beeswarm(cex = input$cex, alpha = 0.6, size = input$point_size_data) +
                 geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
@@ -229,8 +245,8 @@ server <- function(input, output, session) {
                 theme_plot()
             
         } else if(input$geom == "Violin") {
-           
-                data() %>%
+            
+            data_fin() %>%
                 ggplot(aes(x = Condition, y = Value)) +
                 geom_violin(fill = "grey82") +
                 geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
@@ -244,8 +260,8 @@ server <- function(input, output, session) {
                 theme_plot()
             
         } else if(input$geom == "Boxplot") {
-           
-                data() %>%
+            
+            data_fin() %>%
                 ggplot(aes(x = Condition, y = Value)) +
                 geom_boxplot() +
                 geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
@@ -259,7 +275,7 @@ server <- function(input, output, session) {
                 theme_plot()
             
         } else if(input$geom == "Barplot") {
-            data() %>%
+            data_fin() %>%
                 group_by(Condition) %>%
                 summarize(Mean = mean(Value),
                           Median = median(Value),
@@ -282,22 +298,22 @@ server <- function(input, output, session) {
     
     # Superplot output
     output$plot <- renderPlot({
-        req(input$data_raw)
+        req(superplot())
         superplot()
     }, width = function() {input$plot_width * 72}, height = function() {input$plot_height * 72}, res = 72)
     
+    
     # Create rescaling sliders
     observe({
-        req(input$y_value)
-        
+        req(data_raw(), input$y_value)
         updateSliderInput(session, "y_scale", min = 0,
-                              max = round(max(data_raw()[,input$y_value], na.rm = TRUE) * 1.5, digits = 2),
-                              value = c(0, round(max(data_raw()[,input$y_value], na.rm = TRUE) * 1.25, digits = 2)))
-    
-    # Update p value position brackets
+                          max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
+                          value = c(0, round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.25, digits = 2)))
+        
+        # Update p value position brackets
         updateSliderInput(session, "signif_position", min = 0,
-                          max = round(max(data_raw()[,input$y_value], na.rm = TRUE) * 1.5, digits = 2),
-                          value = round(max(data_raw()[,input$y_value], na.rm = TRUE), digits = 2))
+                          max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
+                          value = round(max(data_raw()[[input$y_value]], na.rm = TRUE), digits = 2))
     })
     
     # Export plot
@@ -314,6 +330,7 @@ server <- function(input, output, session) {
         })
     
 }
+
 
 
 shinyApp(ui = ui, server = server)
