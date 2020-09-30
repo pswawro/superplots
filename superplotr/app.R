@@ -233,10 +233,10 @@ server <- function(input, output, session) {
             
             data_fin() %>%
                 ggplot(aes(x = Condition, y = Value)) +
-                geom_beeswarm(cex = input$cex, alpha = 0.6, size = input$point_size_data) +
+                geom_beeswarm(cex = input$cex, alpha = 0.6, size = input$point_size_data, groupOnX = TRUE) +
                 geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
                                                          fill = Rep, shape = Rep),
-                              size = input$point_size_sum) +
+                              size = input$point_size_sum, groupOnX = TRUE) +
                 stat_pvalue_manual(data = data_signif(), step.increase = 0.075) +
                 scale_shape_manual(values = c(21:25)) +
                 scale_x_discrete(name = NULL) +
@@ -251,7 +251,7 @@ server <- function(input, output, session) {
                 geom_violin(fill = "grey82") +
                 geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
                                                          fill = Rep, shape = Rep),
-                              size = input$point_size_sum) +
+                              size = input$point_size_sum, groupOnX = TRUE) +
                 stat_pvalue_manual(data = data_signif(), step.increase = 0.075) +
                 scale_shape_manual(values = c(21:25)) +
                 scale_x_discrete(name = NULL) +
@@ -266,7 +266,7 @@ server <- function(input, output, session) {
                 geom_boxplot() +
                 geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
                                                          fill = Rep, shape = Rep),
-                              size = input$point_size_sum) +
+                              size = input$point_size_sum, groupOnX = TRUE) +
                 stat_pvalue_manual(data = data_signif(), step.increase = 0.075) +
                 scale_shape_manual(values = c(21:25)) +
                 scale_x_discrete(name = NULL) +
@@ -287,7 +287,7 @@ server <- function(input, output, session) {
                 geom_col(fill = "grey56") +
                 geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
                                                          fill = Rep, shape = Rep),
-                              size = input$point_size_sum) +
+                              size = input$point_size_sum, groupOnX = TRUE) +
                 scale_shape_manual(values = c(21:25)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
@@ -304,7 +304,7 @@ server <- function(input, output, session) {
     
     
     # Create rescaling sliders
-    observe({
+    observeEvent(input$y_value, {
         req(data_raw(), input$y_value)
         updateSliderInput(session, "y_scale", min = 0,
                           max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
