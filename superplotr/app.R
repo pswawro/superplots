@@ -92,6 +92,7 @@ ui <- fluidPage(
 #### Server ####
 
 server <- function(input, output, session) {
+    
     # Read csv
     data_raw <- reactive({
         req(input$data_raw)
@@ -114,10 +115,17 @@ server <- function(input, output, session) {
         updatePickerInput(session, "y_value", choices = col_names_num, selected = col_names_num[1])
     }, label = "column input update")
     
+    # Update control group input picker
+    observeEvent(input$condition, {
+        req(data_raw())
+        updatePickerInput(session, "ref", choices = unique(data_raw()[[input$condition]],
+                                                           selected = unique(data_raw()[[input$condition]][1])))
+    }, label = "ref input update")
+    
     
     # Read columns from inputs
     data0 <- eventReactive(list(data_raw(), input$condition, input$rep, input$y_value), {
-        req(data_raw(), input$condition, input$rep, input$y_value)
+        req(data_raw())
         
         data_raw() %>%
             mutate(Condition = !!sym(input$condition),
@@ -127,23 +135,17 @@ server <- function(input, output, session) {
             select(Condition, Rep, Value)
     }, label = "data0")
     
-    # Update control group input picker
-    observeEvent(input$condition, {
-        req(data0(), input$condition)
-        updatePickerInput(session, "ref", choices = unique(data0()$Condition))
-    }, label = "ref input update")
     
     # Update control group when input columns change
-   ref_level <- eventReactive(input$ref, {
-       req(input$ref)
-       input$ref
-   }, label = "ref")
-   
-   
+    ref_level <- eventReactive(input$ref, {
+        req(input$ref)
+        input$ref
+    }, label = "ref")
+    
+    
     # Change values of Condition and Rep for factors
-    data_fin <- eventReactive(list(input$ref, input$rep, input$y_value), {
-        req(data0())
-        print(input$ref)
+    data_fin <- eventReactive(list(ref_level(), input$rep, input$y_value), {
+        req(ref_level(), data0())
         
         nlevels <- unique(data0()$Condition)
         
@@ -167,7 +169,7 @@ server <- function(input, output, session) {
             select(Condition, Rep, Mean, Median, SEM, Min, Max)
     }, label = "data_summary")
     
-
+    
     # Output raw data
     output$data <- renderDataTable({
         req(data_fin())
@@ -181,20 +183,19 @@ server <- function(input, output, session) {
         data_summary()
     })
     
-    
-    
     # Calculate significance
-    data_for_signif <- reactive({
-        req(input$ref)
+    data_for_signif <- eventReactive(list(ref_level(), data_summary()), {
+        req(ref_level(), data_summary())
         
-        ref_signif <- gsub('-', '**subformin**', input$ref, fixed = TRUE)
+        ref_signif <- gsub('-', '**subformin**', ref_level(), fixed = TRUE)
         
         data_summary() %>%
             mutate(Condition = gsub('-', '**subformin**', Condition, fixed = TRUE),
                    Condition = fct_relevel(Condition, ref_signif))
     }, label = "data_for_signif")
     
-    data_signif <- eventReactive(list(input$ref, data_fin(), data_for_signif(), input$sum, input$signif_position), {
+    data_signif <- eventReactive(list(input$test, input$condition, data_fin(), data_for_signif(), input$sum, input$signif_position), {
+        req(data_fin(), data_for_signif())
         
         if(input$test == "t.test") {
             validate(need(
@@ -219,13 +220,6 @@ server <- function(input, output, session) {
         }
     }, label = "data_signif")
     
-    output$signif <- renderDataTable({
-        req(input$data_raw)
-        data_signif() %>%
-            select(Control = group2, Compare_group = group1, p.value = p)
-    })
-    
-    
     # Define ggplot theme
     theme_plot <- reactive({
         req(input$x_label_size, input$y_label_size)
@@ -244,7 +238,7 @@ server <- function(input, output, session) {
     ## Superplot without p value
     superplot <- reactive({
         
-        req(data_fin(), input$cex, input$ref, input$point_size_data, input$sum, input$point_size_sum, input$y_scale, input$geom)
+        req(data_fin(), data_signif(), input$cex, input$point_size_data, input$point_size_sum, input$y_scale)
         
         if(input$geom %in% c("Beeswarm", "Violin", "Boxplot")) {
             
@@ -254,8 +248,8 @@ server <- function(input, output, session) {
                 {if(input$geom == "Violin") geom_violin(fill = "grey82")} +
                 {if(input$geom == "Boxplot") geom_boxplot()} +
                 {if(input$show_summary) geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
-                                                                                      fill = Rep, shape = Rep),
-                                                           size = input$point_size_sum, groupOnX = TRUE)} +
+                                                                                 fill = Rep, shape = Rep),
+                                                      size = input$point_size_sum, groupOnX = TRUE)} +
                 {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = 0.15, size = 2.5)} +
                 scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
@@ -286,7 +280,6 @@ server <- function(input, output, session) {
         }
     }, label = "superplot")
     
-    
     # Superplot output
     output$plot <- renderPlot({
         req(superplot())
@@ -295,10 +288,16 @@ server <- function(input, output, session) {
         
     }, width = function() {input$plot_width * 72}, height = function() {input$plot_height * 72}, res = 72)
     
+    output$signif <- renderDataTable({
+        req(data_signif())
+        data_signif() %>%
+            select(Control = group2, Compare_group = group1, p.value = p)
+    })
+    
     
     # Create rescaling sliders
     observeEvent(input$y_value, {
-        req(data_raw(), input$y_value)
+        req(data_raw())
         updateSliderInput(session, "y_scale", min = 0,
                           max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
                           value = c(0, round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.25, digits = 2)))
