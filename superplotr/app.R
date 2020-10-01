@@ -59,7 +59,7 @@ ui <- fluidPage(
             # Display options
             conditionalPanel(condition = "input.options == 'Display'",
                              
-                             prettySwitch("show_summary", "Show replicate mean/median", value = TRUE, status = "primary"),
+                             prettySwitch("show_summary", "Show replicate mean/median", value = FALSE, status = "primary"),
                              
                              fluidRow(
                                  column(6, sliderInput("plot_width", "Plot width (in)", min = 1, max = 12, value = 4.5, step = 0.25)),
@@ -68,7 +68,7 @@ ui <- fluidPage(
                              sliderInput("y_scale", "Scale y axis", min = 0, max = 1, value = c(0, 1)),
                              sliderInput("point_size_sum", "Point size (summary)", min = 1, max = 10, value = 5, step = 0.25),
                              conditionalPanel(condition = "input.geom == 'Beeswarm'",
-                                              sliderInput("point_size_data", "Point size (individual data)", min = 1, max = 5, value = 1.5, step = 0.25),
+                                              sliderInput("point_size_data", "Point size (individual data)", min = 0.5, max = 5, value = 1.5, step = 0.25),
                                               sliderInput("cex", "Point spread", min = 1, max = 3, value = 1.5, step = 0.25))),
             
             # Export options
@@ -114,31 +114,26 @@ server <- function(input, output, session) {
     # Update control input
     observe({
         req(data_raw(), input$condition)
-        updatePickerInput(session, "ref", choices = unique(data_raw()[,input$condition]))
+        updatePickerInput(session, "ref", choices = unique(data_raw()[[input$condition]]))
     })
     
     # Final data
-    data_2 <- reactive({
-        req(data_raw(), input$condition, input$rep, input$y_value)
+    data_fin <- eventReactive(list(data_raw(), input$ref, input$rep, input$y_value), {
+        req(input$ref, input$rep, input$y_value)
         
         nlevels <- unique(data_raw()[[input$condition]])
+        ref_level <- input$ref
         
+        print(ref_level)
         data_raw() %>%
-            mutate(Condition = !!sym(input$condition),
+            mutate(Condition = !!sym(isolate(input$condition)),
                    Condition = factor(Condition, levels = nlevels, ordered = FALSE),
+                   Condition = fct_relevel(Condition, ref_level),
                    Rep = !!sym(input$rep),
                    Rep = factor(Rep),
                    Value = as.numeric(!!sym(input$y_value))) %>%
             filter(!is.na(Value)) %>%
             select(Condition, Rep, Value)
-    })
-    
-    data_fin <- eventReactive(list(input$ref, input$rep, input$y_value), {
-        
-        ref_level <- input$ref
-        
-        data_2() %>%
-            mutate(Condition = fct_relevel(Condition, ref_level))
     })
     
     
@@ -183,21 +178,21 @@ server <- function(input, output, session) {
                    Condition = fct_relevel(Condition, ref_signif))
     })
     
-    data_signif <- reactive({
-        req(data_fin(), data_for_signif(), input$sum, input$condition, input$signif_position, input$ref)
+    data_signif <- eventReactive(list(input$ref, data_fin(), data_for_signif(), input$sum, input$signif_position), {
+        
         if(input$test == "t.test") {
             validate(need(
                 length(unique(data_fin()$Condition)) == 2,
                 message = "To perform t.test, the number of conditions must be 2. For 3 conditions and more please choose Anova."))
             
-            t.test(as.formula(paste(input$sum, "~", input$condition)), data_for_signif(), paired = TRUE) %>%
+            t.test(as.formula(paste(input$sum, "~", "Condition")), data_for_signif(), paired = TRUE) %>%
                 tidy() %>%
                 transmute(group1 = unique(Condition)[2],
                           group2 = unique(Condition)[1],
                           p = signif(p.value, 3),
                           y.position = input$signif_position)
         } else {
-            TukeyHSD(aov(as.formula(paste(input$sum, "~", input$condition)), data = data_for_signif())) %>%
+            TukeyHSD(aov(as.formula(paste(input$sum, "~", "Condition")), data = data_for_signif())) %>%
                 tidy() %>%
                 separate(contrast, into = c("group1", "group2"), sep = "-", extra = "merge") %>%
                 transmute(group1 = gsub('**subformin**', '-', group1, fixed = TRUE),
@@ -222,7 +217,7 @@ server <- function(input, output, session) {
               text = element_text(family = "Arial", color = "black"),
               axis.title.x = element_text(size = input$x_label_size),
               axis.title.y = element_text(size = input$y_label_size),
-              axis.text.x = element_text(size = 10, angle = 45, vjust = 0.5),
+              axis.text.x = element_text(size = 10, angle = 45, vjust = 0.95, hjust=0.95),
               axis.text.y = element_text(size = 8, margin = unit(c(0, 2, 0, 0), "mm")),
               plot.tag = element_text(size = 8),
               plot.tag.position = c(0.3, 0.06),
@@ -231,35 +226,21 @@ server <- function(input, output, session) {
     
     # Create superplot
     ## Superplot without p value
-    superplot_bare <- reactive({
-        req(data_fin(), input$cex, input$point_size_data, input$sum, input$point_size_sum, input$y_scale)
-        if(input$geom == "Beeswarm") {
+    superplot <- reactive({
+        
+        req(data_fin(), input$cex, input$ref, input$point_size_data, input$sum, input$point_size_sum, input$y_scale, input$geom)
+        
+        if(input$geom %in% c("Beeswarm", "Violin", "Boxplot")) {
             
             data_fin() %>%
                 ggplot(aes(x = Condition, y = Value)) +
-                geom_beeswarm(cex = input$cex, alpha = 0.6, size = input$point_size_data, groupOnX = TRUE) +
-                scale_shape_manual(values = c(21:25, 1:20)) +
-                scale_x_discrete(name = NULL) +
-                scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
-                theme_classic() +
-                theme_plot()
-            
-        } else if(input$geom == "Violin") {
-            
-            data_fin() %>%
-                ggplot(aes(x = Condition, y = Value)) +
-                geom_violin(fill = "grey82") +
-                scale_shape_manual(values = c(21:25,  1:20)) +
-                scale_x_discrete(name = NULL) +
-                scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
-                theme_classic() +
-                theme_plot()
-            
-        } else if(input$geom == "Boxplot") {
-            
-            data_fin() %>%
-                ggplot(aes(x = Condition, y = Value)) +
-                geom_boxplot() +
+                {if(input$geom == "Beeswarm") geom_beeswarm(cex = input$cex, alpha = 0.6, size = input$point_size_data, groupOnX = TRUE)} +
+                {if(input$geom == "Violin") geom_violin(fill = "grey82")} +
+                {if(input$geom == "Boxplot") geom_boxplot()} +
+                {if(input$show_summary) geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
+                                                                                      fill = Rep, shape = Rep),
+                                                           size = input$point_size_sum, groupOnX = TRUE)} +
+                {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = 0.15, size = 2.5)} +
                 scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
@@ -277,6 +258,10 @@ server <- function(input, output, session) {
                 ggplot(aes(x = Condition, y = !!sym(input$sum))) +
                 geom_errorbar(aes(ymin = !!sym(input$sum) - SEM, ymax = !!sym(input$sum) + SEM), width = 0.25) +
                 geom_col(fill = "grey56") +
+                {if(input$show_summary) geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
+                                                                                 fill = Rep, shape = Rep),
+                                                      size = input$point_size_sum, groupOnX = TRUE)} +
+                {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = 0.15)} +
                 scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
@@ -285,44 +270,13 @@ server <- function(input, output, session) {
         }
     })
     
-    ## Superplot with mean/median for replicates
-    superplot <- reactive({
-        superplot_bare() +
-            geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
-                                                     fill = Rep, shape = Rep),
-                          size = input$point_size_sum, groupOnX = TRUE)
-    })
-    
-    ## Superplot with p value without means
-    superplot_bare_signif <- reactive({
-        superplot_bare() + 
-        stat_pvalue_manual(data = data_signif(), step.increase = 0.075)
-    })
-    
-    ## Superplot full with p value
-    superplot_signif <- reactive({
-        superplot() + 
-            stat_pvalue_manual(data = data_signif(), step.increase = 0.075)
-    })
-        
     
     # Superplot output
     output$plot <- renderPlot({
-        req(superplot_bare(), superplot(), superplot_signif())
+        req(superplot())
         
-        if(input$show_signif == 0) {
-            if(input$show_summary == 0) {
-                superplot_bare()
-            } else {
-                superplot()
-            }
-        } else {
-            if(input$show_summary == 0) {
-                superplot_bare_signif()
-            } else {
-            superplot_signif()
-            }
-        }
+        superplot()
+        
     }, width = function() {input$plot_width * 72}, height = function() {input$plot_height * 72}, res = 72)
     
     
@@ -353,7 +307,6 @@ server <- function(input, output, session) {
         })
     
 }
-
 
 
 shinyApp(ui = ui, server = server)
