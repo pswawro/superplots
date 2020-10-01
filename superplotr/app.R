@@ -53,10 +53,13 @@ ui <- fluidPage(
             conditionalPanel(condition = "input.options == 'Signif'",
                              awesomeRadio("test","Choose significance test", choices = c("t.test", "Anova"), selected = "Anova",
                                           inline = TRUE, checkbox = TRUE),
+                             prettySwitch("show_signif", "Show p value", value = TRUE, status = "primary"),
                              sliderInput("signif_position", "Move p value brackets", min = 0, max = 1, value = 1)),
             
             # Display options
             conditionalPanel(condition = "input.options == 'Display'",
+                             
+                             prettySwitch("show_summary", "Show replicate mean/median", value = TRUE, status = "primary"),
                              
                              fluidRow(
                                  column(6, sliderInput("plot_width", "Plot width (in)", min = 1, max = 12, value = 4.5, step = 0.25)),
@@ -227,18 +230,15 @@ server <- function(input, output, session) {
     })
     
     # Create superplot
-    superplot <- reactive({
+    ## Superplot without p value
+    superplot_bare <- reactive({
         req(data_fin(), input$cex, input$point_size_data, input$sum, input$point_size_sum, input$y_scale)
         if(input$geom == "Beeswarm") {
             
             data_fin() %>%
                 ggplot(aes(x = Condition, y = Value)) +
                 geom_beeswarm(cex = input$cex, alpha = 0.6, size = input$point_size_data, groupOnX = TRUE) +
-                geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
-                                                         fill = Rep, shape = Rep),
-                              size = input$point_size_sum, groupOnX = TRUE) +
-                stat_pvalue_manual(data = data_signif(), step.increase = 0.075) +
-                scale_shape_manual(values = c(21:25)) +
+                scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
                 theme_classic() +
@@ -249,11 +249,7 @@ server <- function(input, output, session) {
             data_fin() %>%
                 ggplot(aes(x = Condition, y = Value)) +
                 geom_violin(fill = "grey82") +
-                geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
-                                                         fill = Rep, shape = Rep),
-                              size = input$point_size_sum, groupOnX = TRUE) +
-                stat_pvalue_manual(data = data_signif(), step.increase = 0.075) +
-                scale_shape_manual(values = c(21:25)) +
+                scale_shape_manual(values = c(21:25,  1:20)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
                 theme_classic() +
@@ -264,11 +260,7 @@ server <- function(input, output, session) {
             data_fin() %>%
                 ggplot(aes(x = Condition, y = Value)) +
                 geom_boxplot() +
-                geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
-                                                         fill = Rep, shape = Rep),
-                              size = input$point_size_sum, groupOnX = TRUE) +
-                stat_pvalue_manual(data = data_signif(), step.increase = 0.075) +
-                scale_shape_manual(values = c(21:25)) +
+                scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
                 theme_classic() +
@@ -285,10 +277,7 @@ server <- function(input, output, session) {
                 ggplot(aes(x = Condition, y = !!sym(input$sum))) +
                 geom_errorbar(aes(ymin = !!sym(input$sum) - SEM, ymax = !!sym(input$sum) + SEM), width = 0.25) +
                 geom_col(fill = "grey56") +
-                geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
-                                                         fill = Rep, shape = Rep),
-                              size = input$point_size_sum, groupOnX = TRUE) +
-                scale_shape_manual(values = c(21:25)) +
+                scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
                 theme_classic() +
@@ -296,10 +285,44 @@ server <- function(input, output, session) {
         }
     })
     
+    ## Superplot with mean/median for replicates
+    superplot <- reactive({
+        superplot_bare() +
+            geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
+                                                     fill = Rep, shape = Rep),
+                          size = input$point_size_sum, groupOnX = TRUE)
+    })
+    
+    ## Superplot with p value without means
+    superplot_bare_signif <- reactive({
+        superplot_bare() + 
+        stat_pvalue_manual(data = data_signif(), step.increase = 0.075)
+    })
+    
+    ## Superplot full with p value
+    superplot_signif <- reactive({
+        superplot() + 
+            stat_pvalue_manual(data = data_signif(), step.increase = 0.075)
+    })
+        
+    
     # Superplot output
     output$plot <- renderPlot({
-        req(superplot())
-        superplot()
+        req(superplot_bare(), superplot(), superplot_signif())
+        
+        if(input$show_signif == 0) {
+            if(input$show_summary == 0) {
+                superplot_bare()
+            } else {
+                superplot()
+            }
+        } else {
+            if(input$show_summary == 0) {
+                superplot_bare_signif()
+            } else {
+            superplot_signif()
+            }
+        }
     }, width = function() {input$plot_width * 72}, height = function() {input$plot_height * 72}, res = 72)
     
     
