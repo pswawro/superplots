@@ -8,6 +8,8 @@ library(extrafont)
 library(Cairo)
 library(broom)
 
+library(reactlog)
+
 loadfonts()
 shinyWidgetsGallery()
 
@@ -98,6 +100,7 @@ server <- function(input, output, session) {
     
     # Choose values to plot by
     observeEvent(data_raw(), {
+        req(data_raw())
         
         col_names <- names(data_raw())
         col_names_num <- data_raw() %>%
@@ -111,31 +114,44 @@ server <- function(input, output, session) {
         updatePickerInput(session, "y_value", choices = col_names_num, selected = col_names_num[1])
     })
     
-    # Update control input
-    observe({
-        req(data_raw(), input$condition)
-        updatePickerInput(session, "ref", choices = unique(data_raw()[[input$condition]]))
-    })
     
-    # Final data
-    data_fin <- eventReactive(list(data_raw(), input$ref, input$rep, input$y_value), {
-        req(input$ref, input$rep, input$y_value)
+    # Read columns from inputs
+    data0 <- eventReactive(list(data_raw(), input$condition, input$rep, input$y_value), {
+        req(data_raw(), input$condition, input$rep, input$y_value)
         
-        nlevels <- unique(data_raw()[[input$condition]])
-        ref_level <- input$ref
-        
-        print(ref_level)
         data_raw() %>%
-            mutate(Condition = !!sym(isolate(input$condition)),
-                   Condition = factor(Condition, levels = nlevels, ordered = FALSE),
-                   Condition = fct_relevel(Condition, ref_level),
+            mutate(Condition = !!sym(input$condition),
                    Rep = !!sym(input$rep),
-                   Rep = factor(Rep),
                    Value = as.numeric(!!sym(input$y_value))) %>%
             filter(!is.na(Value)) %>%
             select(Condition, Rep, Value)
     })
     
+    # Update control group input picker
+    observeEvent(input$condition, {
+        req(data0(), input$condition)
+        updatePickerInput(session, "ref", choices = unique(data0()$Condition))
+    })
+    
+    # Update control group when input columns change
+   ref_level <- eventReactive(input$ref, {
+       req(input$ref)
+       input$ref
+   })
+   
+   
+    # Change values of Condition and Rep for factors
+    data_fin <- eventReactive(list(input$ref, input$rep, input$y_value), {
+        req(data0())
+        print(input$ref)
+        
+        nlevels <- unique(data0()$Condition)
+        
+        data0() %>%
+            mutate(Condition = factor(Condition, levels = nlevels, ordered = FALSE),
+                   Condition = fct_relevel(Condition, ref_level()),
+                   Rep = factor(Rep))
+    })
     
     # Create data summary   
     data_summary <- reactive({
@@ -151,7 +167,7 @@ server <- function(input, output, session) {
             select(Condition, Rep, Mean, Median, SEM, Min, Max)
     })
     
-    
+
     # Output raw data
     output$data <- renderDataTable({
         req(data_fin())
