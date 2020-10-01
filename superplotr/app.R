@@ -112,7 +112,7 @@ server <- function(input, output, session) {
         updatePickerInput(session, "rep", choices = col_names, selected = col_names[2])
         
         updatePickerInput(session, "y_value", choices = col_names_num, selected = col_names_num[1])
-    })
+    }, label = "column input update")
     
     
     # Read columns from inputs
@@ -125,19 +125,19 @@ server <- function(input, output, session) {
                    Value = as.numeric(!!sym(input$y_value))) %>%
             filter(!is.na(Value)) %>%
             select(Condition, Rep, Value)
-    })
+    }, label = "data0")
     
     # Update control group input picker
     observeEvent(input$condition, {
         req(data0(), input$condition)
         updatePickerInput(session, "ref", choices = unique(data0()$Condition))
-    })
+    }, label = "ref input update")
     
     # Update control group when input columns change
    ref_level <- eventReactive(input$ref, {
        req(input$ref)
        input$ref
-   })
+   }, label = "ref")
    
    
     # Change values of Condition and Rep for factors
@@ -151,7 +151,7 @@ server <- function(input, output, session) {
             mutate(Condition = factor(Condition, levels = nlevels, ordered = FALSE),
                    Condition = fct_relevel(Condition, ref_level()),
                    Rep = factor(Rep))
-    })
+    }, label = "data_fin")
     
     # Create data summary   
     data_summary <- reactive({
@@ -165,7 +165,7 @@ server <- function(input, output, session) {
                       Max = max(Value, na.rm = TRUE)) %>%
             ungroup() %>%
             select(Condition, Rep, Mean, Median, SEM, Min, Max)
-    })
+    }, label = "data_summary")
     
 
     # Output raw data
@@ -192,7 +192,7 @@ server <- function(input, output, session) {
         data_summary() %>%
             mutate(Condition = gsub('-', '**subformin**', Condition, fixed = TRUE),
                    Condition = fct_relevel(Condition, ref_signif))
-    })
+    }, label = "data_for_signif")
     
     data_signif <- eventReactive(list(input$ref, data_fin(), data_for_signif(), input$sum, input$signif_position), {
         
@@ -217,7 +217,7 @@ server <- function(input, output, session) {
                           y.position =  input$signif_position) %>%
                 filter(group2 == input$ref)
         }
-    })
+    }, label = "data_signif")
     
     output$signif <- renderDataTable({
         req(input$data_raw)
@@ -238,7 +238,7 @@ server <- function(input, output, session) {
               plot.tag = element_text(size = 8),
               plot.tag.position = c(0.3, 0.06),
               axis.ticks.length.y = unit(-1, "mm"))
-    })
+    }, label = "gg plot theme")
     
     # Create superplot
     ## Superplot without p value
@@ -284,7 +284,7 @@ server <- function(input, output, session) {
                 theme_classic() +
                 theme_plot()
         }
-    })
+    }, label = "superplot")
     
     
     # Superplot output
@@ -307,7 +307,7 @@ server <- function(input, output, session) {
         updateSliderInput(session, "signif_position", min = 0,
                           max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
                           value = round(max(data_raw()[[input$y_value]], na.rm = TRUE), digits = 2))
-    })
+    }, label = "update y_scale and signif position sliders")
     
     # Export plot
     output$plot_to_pdf <- downloadHandler(
