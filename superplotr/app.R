@@ -75,8 +75,8 @@ ui <- fluidPage(
             
             # Export options
             conditionalPanel(condition = "input.options == 'Export'",
-                             downloadButton("plot_to_pdf", "Save plot as pdf"),
-                             downloadButton("plot_to_png", "Save plot as png"))
+                             downloadButton("plot_pdf", "Save plot as pdf"),
+                             downloadButton("plot_png", "Save plot as png"))
         ),
         mainPanel(
             tabsetPanel(
@@ -309,16 +309,16 @@ server <- function(input, output, session) {
     }, label = "update y_scale and signif position sliders")
     
     # Export plot
-    output$plot_to_pdf <- downloadHandler(
+    output$plot_pdf <- downloadHandler(
         filename = "plot.pdf",
         content = function(file) {
-            ggsave(file, superplot(), width = input$plot_width, height = input$plot_height, device = cairo_pdf())
+            ggsave(file, superplot(), width = input$plot_width, height = input$plot_height, device = "pdf", dpi = 300)
         })
     
-    output$plot_to_png <- downloadHandler(
+    output$plot_png <- downloadHandler(
         filename = "plot.png",
         content = function(file) {
-            ggsave(file, superplot(), width = input$plot_width, height = input$plot_height, device = "png", dpi = 300)
+            ggsave(file, superplot(), width = input$plot_width, height = input$plot_height, device = cairo_pdf(), dpi = 300)
         })
     
 }
