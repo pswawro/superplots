@@ -136,23 +136,22 @@ server <- function(input, output, session) {
     }, label = "data0")
     
     
-    # Update control group when input columns change
-    ref_level <- eventReactive(input$ref, {
-        req(input$ref)
-        input$ref
-    }, label = "ref")
-    
-    
     # Change values of Condition and Rep for factors
-    data_fin <- eventReactive(list(ref_level(), input$rep, input$y_value), {
-        req(ref_level(), data0())
+    data_fin <- eventReactive(list(input$ref, input$rep, input$y_value), {
+        req(data0(), input$ref)
         
         nlevels <- unique(data0()$Condition)
+        ref_level <- input$ref
         
+        if(ref_level %in% nlevels) {
         data0() %>%
             mutate(Condition = factor(Condition, levels = nlevels, ordered = FALSE),
-                   Condition = fct_relevel(Condition, ref_level()),
+                   Condition = fct_relevel(Condition, ref_level),
                    Rep = factor(Rep))
+        } else {
+            NULL
+        }
+        
     }, label = "data_fin")
     
     # Create data summary   
@@ -172,22 +171,22 @@ server <- function(input, output, session) {
     
     # Output raw data
     output$data <- renderDataTable({
-        req(data_fin())
-        data_fin()
+        req(data0())
+        data0()
     })
     
     
     # Output data summary
     output$summary <- renderDataTable({
-        req(data_summary())
+        req(data_summary(), data_fin())
         data_summary()
     })
     
     # Calculate significance
-    data_for_signif <- eventReactive(list(ref_level(), data_summary()), {
-        req(ref_level(), data_summary())
+    data_for_signif <- eventReactive(list(input$ref, data_summary()), {
+        req(data_summary(), data_fin())
         
-        ref_signif <- gsub('-', '**subformin**', ref_level(), fixed = TRUE)
+        ref_signif <- gsub('-', '**subformin**', input$ref, fixed = TRUE)
         
         data_summary() %>%
             mutate(Condition = gsub('-', '**subformin**', Condition, fixed = TRUE),
@@ -195,7 +194,7 @@ server <- function(input, output, session) {
     }, label = "data_for_signif")
     
     data_signif <- eventReactive(list(input$test, input$condition, data_fin(), data_for_signif(), input$sum, input$signif_position), {
-        req(data_fin(), data_for_signif())
+        req(data_fin(), data_for_signif(), data_fin())
         
         if(input$test == "t.test") {
             validate(need(
@@ -222,7 +221,7 @@ server <- function(input, output, session) {
     
     # Define ggplot theme
     theme_plot <- reactive({
-        req(input$x_label_size, input$y_label_size)
+        req(input$x_label_size, input$y_label_size, data_fin())
         theme(legend.position = "none",
               text = element_text(family = "Arial", color = "black"),
               axis.title.x = element_text(size = input$x_label_size),
@@ -282,14 +281,14 @@ server <- function(input, output, session) {
     
     # Superplot output
     output$plot <- renderPlot({
-        req(superplot())
+        req(superplot(), data_fin())
         
         superplot()
         
     }, width = function() {input$plot_width * 72}, height = function() {input$plot_height * 72}, res = 72)
     
     output$signif <- renderDataTable({
-        req(data_signif())
+        req(data_signif(), data_fin())
         data_signif() %>%
             select(Control = group2, Compare_group = group1, p.value = p)
     })
