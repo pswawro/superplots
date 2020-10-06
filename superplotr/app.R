@@ -223,11 +223,11 @@ server <- function(input, output, session) {
     theme_plot <- reactive({
         req(input$x_label_size, input$y_label_size, data_fin())
         theme(legend.position = "none",
-              text = element_text(family = "Arial", color = "black"),
-              axis.title.x = element_text(size = input$x_label_size),
-              axis.title.y = element_text(size = input$y_label_size),
-              axis.text.x = element_text(size = 10, angle = 45, vjust = 0.95, hjust=0.95),
-              axis.text.y = element_text(size = 8, margin = unit(c(0, 2, 0, 0), "mm")),
+              text = element_text(color = "black"),
+              axis.title.x = element_text(size = input$x_label_size, color = "black"),
+              axis.title.y = element_text(size = input$y_label_size, color = "black"),
+              axis.text.x = element_text(size = 10, angle = 45, vjust = 0.95, hjust=0.95, color = "black"),
+              axis.text.y = element_text(size = 8, margin = unit(c(0, 2, 0, 0), "mm"), color = "black"),
               plot.tag = element_text(size = 8),
               plot.tag.position = c(0.3, 0.06),
               axis.ticks.length.y = unit(-1, "mm"))
@@ -252,7 +252,8 @@ server <- function(input, output, session) {
                 {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = 0.15, size = 2.5)} +
                 scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
-                scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
+                scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2]), expand = c(0, 0)) +
+                scale_fill_brewer(palette = "Set3") +
                 theme_classic() +
                 theme_plot()
             
@@ -266,14 +267,15 @@ server <- function(input, output, session) {
                           Max = max(Value)) %>%
                 ggplot(aes(x = Condition, y = !!sym(input$sum))) +
                 geom_errorbar(aes(ymin = !!sym(input$sum) - SEM, ymax = !!sym(input$sum) + SEM), width = 0.25) +
-                geom_col(fill = "grey56") +
+                geom_col(fill = "#808080", color = "black", width = 0.75) +
                 {if(input$show_summary) geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
                                                                                  fill = Rep, shape = Rep),
                                                       size = input$point_size_sum, groupOnX = TRUE)} +
                 {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = 0.15)} +
                 scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
-                scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2])) +
+                scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2]), expand = c(0, 0)) +
+                scale_fill_brewer(palette = "Set3") +
                 theme_classic() +
                 theme_plot()
         }
