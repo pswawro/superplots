@@ -3,14 +3,11 @@ library(shinyWidgets)
 library(tidyverse)
 library(ggbeeswarm)
 library(ggpubr)
-library(extrafontdb)
-library(extrafont)
 library(Cairo)
 library(broom)
 
 library(reactlog)
 
-loadfonts()
 shinyWidgetsGallery()
 
 #### UI ####
@@ -56,7 +53,8 @@ ui <- fluidPage(
                              awesomeRadio("test","Choose significance test", choices = c("t.test", "Anova"), selected = "Anova",
                                           inline = TRUE, checkbox = TRUE),
                              prettySwitch("show_signif", "Show p value", value = TRUE, status = "primary"),
-                             sliderInput("signif_position", "Move p value brackets", min = 0, max = 1, value = 1)),
+                             sliderInput("signif_position", "Move p value brackets", min = 0, max = 1, value = 1),
+                             sliderInput("signif_spacing", "Adjust p value brackets spacing", min = 0, max = 0.5, value = 0.1)),
             
             # Display options
             conditionalPanel(condition = "input.options == 'Display'",
@@ -121,6 +119,19 @@ server <- function(input, output, session) {
         updatePickerInput(session, "ref", choices = unique(data_raw()[[input$condition]],
                                                            selected = unique(data_raw()[[input$condition]][1])))
     }, label = "ref input update")
+    
+    # Create rescaling sliders
+    observeEvent(input$y_value, {
+        req(data_raw())
+        updateSliderInput(session, "y_scale", min = 0,
+                          max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
+                          value = c(0, round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.25, digits = 2)))
+        
+        # Update p value position brackets
+        updateSliderInput(session, "signif_position", min = 0,
+                          max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
+                          value = round(max(data_raw()[[input$y_value]], na.rm = TRUE), digits = 2))
+    }, label = "update y_scale and signif position sliders")
     
     
     # Read columns from inputs
@@ -249,7 +260,7 @@ server <- function(input, output, session) {
                 {if(input$show_summary) geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
                                                                                  fill = Rep, shape = Rep),
                                                       size = input$point_size_sum, groupOnX = TRUE)} +
-                {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = 0.15, size = 2.5)} +
+                {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = input$signif_spacing, size = 2.5)} +
                 scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2]), expand = c(0, 0)) +
@@ -271,7 +282,7 @@ server <- function(input, output, session) {
                 {if(input$show_summary) geom_beeswarm(data = data_summary(), aes(x = Condition, y = !!sym(input$sum),
                                                                                  fill = Rep, shape = Rep),
                                                       size = input$point_size_sum, groupOnX = TRUE)} +
-                {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = 0.15)} +
+                {if(input$show_signif) stat_pvalue_manual(data = data_signif(), step.increase = input$signif_spacing)} +
                 scale_shape_manual(values = c(21:25, 1:20)) +
                 scale_x_discrete(name = NULL) +
                 scale_y_continuous(name = input$y_label, limits = c(input$y_scale[1], input$y_scale[2]), expand = c(0, 0)) +
@@ -296,18 +307,6 @@ server <- function(input, output, session) {
     })
     
     
-    # Create rescaling sliders
-    observeEvent(input$y_value, {
-        req(data_raw())
-        updateSliderInput(session, "y_scale", min = 0,
-                          max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
-                          value = c(0, round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.25, digits = 2)))
-        
-        # Update p value position brackets
-        updateSliderInput(session, "signif_position", min = 0,
-                          max = round(max(data_raw()[[input$y_value]], na.rm = TRUE) * 1.5, digits = 2),
-                          value = round(max(data_raw()[[input$y_value]], na.rm = TRUE), digits = 2))
-    }, label = "update y_scale and signif position sliders")
     
     # Export plot
     output$plot_pdf <- downloadHandler(
