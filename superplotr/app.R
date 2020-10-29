@@ -5,10 +5,12 @@ library(ggbeeswarm)
 library(ggpubr)
 library(Cairo)
 library(broom)
-
-library(reactlog)
+library(pzfx)
+library(stringr)
 
 shinyWidgetsGallery()
+
+dummy_data <- read_csv("dummy_data.csv")
 
 #### UI ####
 
@@ -19,7 +21,9 @@ ui <- fluidPage(
     sidebarLayout(
         # Load data
         sidebarPanel(
-            fileInput("data_raw", "Load your data set (.csv)", accept = ".csv"),
+            prettyRadioButtons("data", "Select data source", choices = c("Sample data", "Load data"), selected = "Sample data", inline = TRUE),
+                conditionalPanel(condition = "input.data == 'Load data'",
+                    fileInput("data_raw", "Load your data set (.csv, .pzfx)", accept = c(".csv", ".pzfx"))),
             # Choose plot type
             prettyRadioButtons("geom", "Plot type", choices = c("Beeswarm", "Violin", "Boxplot", "Barplot"), selected = "Beeswarm"),
             
@@ -91,10 +95,38 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
     
-    # Read csv
     data_raw <- reactive({
-        req(input$data_raw)
-        read_csv(input$data_raw$datapath)
+        req(input$data)
+        if(input$data == "Sample data") {
+          # Read sample data
+            dummy_data
+        } else if(input$data == "Load data") {
+          # Load data from file
+            req(input$data_raw)
+            if(str_detect(input$data_raw$datapath, pattern = ".csv$")) {
+              # Read csv
+                read_csv(input$data_raw$datapath)
+            } else if(str_detect(input$data_raw$datapath, pattern = ".pzfx$")){
+              # Read Prism file
+                # Read list of fables from prism file --> replicates
+                prism_tables <- pzfx_tables(input$data_raw$datapath)
+                
+                # Read prism tables and remove NA columns
+                prism_list <- lapply(seq_along(prism_tables), function(x) read_pzfx(input$data_raw$datapath,
+                                                                                    table = prism_tables[x], strike_action = "keep")) %>%
+                    lapply(function(x) x[, colSums(is.na(x)) < nrow(x)])
+                
+                # Set names of variables into names derived from first table (for consistency)
+                prism_list_named <- lapply(prism_list, set_names, names(prism_list[[1]]))
+                
+                # Add Replicate column to each Prism table (from prism_tables)
+                prism_list_rep <- map2(prism_list_named, prism_tables, function(x, y) mutate(x, Rep = y)) %>%
+                    # transform into long format
+                    lapply(pivot_longer, cols = -Rep, names_to = "Condition", values_to = "Value", values_drop_na = TRUE) %>%
+                    # concatenate data frame
+                    reduce(bind_rows)
+            }
+        }
     })
     
     # Choose values to plot by
@@ -110,12 +142,12 @@ server <- function(input, output, session) {
         
         updatePickerInput(session, "rep", choices = col_names, selected = col_names[2])
         
-        updatePickerInput(session, "y_value", choices = col_names_num, selected = col_names_num[1])
+        updatePickerInput(session, "y_value", choices = col_names_num, selected = col_names_num[length(col_names_num)])
     }, label = "column input update")
     
     # Update control group input picker
-    observeEvent(input$condition, {
-        req(data_raw())
+    observeEvent(list(input$condition, data_raw()), {
+        req(data_raw(), input$condition)
         updatePickerInput(session, "ref", choices = unique(data_raw()[[input$condition]],
                                                            selected = unique(data_raw()[[input$condition]][1])))
     }, label = "ref input update")
@@ -212,10 +244,10 @@ server <- function(input, output, session) {
                 length(unique(data_fin()$Condition)) == 2,
                 message = "To perform t.test, the number of conditions must be 2. For 3 conditions and more please choose Anova."))
             
-            t.test(as.formula(paste(input$sum, "~", "Condition")), data_for_signif(), paired = TRUE) %>%
+            t.test(as.formula(paste(input$sum, "~", "Condition")), data = data_for_signif(), paired = TRUE) %>%
                 tidy() %>%
-                transmute(group1 = unique(Condition)[2],
-                          group2 = unique(Condition)[1],
+                transmute(group1 = unique(data_summary()$Condition)[2],
+                          group2 = unique(data_summary()$Condition)[1],
                           p = signif(p.value, 3),
                           y.position = input$signif_position)
         } else {
